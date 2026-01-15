@@ -1,0 +1,2084 @@
+openapi: 3.0.3
+info:
+  title: オヤカツ API
+  description: |
+    オヤカツ - 推し活パロディ × 家族の仕送りアプリ のREST API仕様書
+
+    ## 認証
+    - Bearer Token認証を使用
+    - ログイン後に取得したJWTトークンをAuthorizationヘッダーに設定
+
+    ## エラーレスポンス
+    すべてのエラーは以下の形式で返却される:
+    ```json
+    {
+      "error": {
+        "code": "ERROR_CODE",
+        "message": "エラーメッセージ"
+      }
+    }
+    ```
+  version: 1.0.0
+  contact:
+    name: オヤカツ開発チーム
+
+servers:
+  - url: https://api.oyakatsu.app/v1
+    description: Production
+  - url: https://api-staging.oyakatsu.app/v1
+    description: Staging
+  - url: http://localhost:3000/v1
+    description: Development
+
+tags:
+  - name: Auth
+    description: 認証関連
+  - name: Users
+    description: ユーザー管理
+  - name: Families
+    description: ファミリー管理
+  - name: Calls
+    description: 通話機能
+  - name: Photos
+    description: 写真投稿
+  - name: Rewards
+    description: 報酬管理
+  - name: Rankings
+    description: ランキング
+  - name: Notifications
+    description: 通知
+
+paths:
+  # ==================== Auth ====================
+  /auth/send-code:
+    post:
+      tags:
+        - Auth
+      summary: 認証コード送信
+      description: 電話番号またはメールアドレスに認証コードを送信
+      operationId: sendAuthCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/SendCodeByPhoneRequest'
+                - $ref: '#/components/schemas/SendCodeByEmailRequest'
+      responses:
+        '200':
+          description: 認証コード送信成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendCodeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/verify-code:
+    post:
+      tags:
+        - Auth
+      summary: 認証コード検証
+      description: 送信された認証コードを検証
+      operationId: verifyAuthCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyCodeRequest'
+      responses:
+        '200':
+          description: 認証成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/login:
+    post:
+      tags:
+        - Auth
+      summary: メール/パスワードログイン
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: ログイン成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/register:
+    post:
+      tags:
+        - Auth
+      summary: 新規ユーザー登録
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: 登録成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /auth/refresh:
+    post:
+      tags:
+        - Auth
+      summary: トークンリフレッシュ
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: トークン更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/logout:
+    post:
+      tags:
+        - Auth
+      summary: ログアウト
+      operationId: logout
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: ログアウト成功
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ==================== Users ====================
+  /users/me:
+    get:
+      tags:
+        - Users
+      summary: 自分のプロフィール取得
+      operationId: getMyProfile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    patch:
+      tags:
+        - Users
+      summary: プロフィール更新
+      operationId: updateMyProfile
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /users/me/avatar:
+    post:
+      tags:
+        - Users
+      summary: アバター画像アップロード
+      operationId: uploadAvatar
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: アップロード成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AvatarResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /users/me/role:
+    post:
+      tags:
+        - Users
+      summary: ロール設定（初回のみ）
+      operationId: setRole
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetRoleRequest'
+      responses:
+        '200':
+          description: ロール設定成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: 既にロールが設定済み
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /users/me/device-token:
+    post:
+      tags:
+        - Users
+      summary: プッシュ通知用デバイストークン登録
+      operationId: registerDeviceToken
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceTokenRequest'
+      responses:
+        '204':
+          description: 登録成功
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ==================== Families ====================
+  /families:
+    post:
+      tags:
+        - Families
+      summary: ファミリー作成（親のみ）
+      operationId: createFamily
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFamilyRequest'
+      responses:
+        '201':
+          description: 作成成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Family'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    get:
+      tags:
+        - Families
+      summary: 所属ファミリー一覧取得
+      operationId: getMyFamilies
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Family'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /families/{familyId}:
+    get:
+      tags:
+        - Families
+      summary: ファミリー詳細取得
+      operationId: getFamily
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FamilyDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags:
+        - Families
+      summary: ファミリー情報更新（親のみ）
+      operationId: updateFamily
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateFamilyRequest'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Family'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /families/{familyId}/members:
+    get:
+      tags:
+        - Families
+      summary: ファミリーメンバー一覧
+      operationId: getFamilyMembers
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FamilyMember'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /families/{familyId}/invite-code:
+    get:
+      tags:
+        - Families
+      summary: 招待コード取得（親のみ）
+      operationId: getInviteCode
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InviteCodeResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags:
+        - Families
+      summary: 招待コード再生成（親のみ）
+      operationId: regenerateInviteCode
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+      responses:
+        '200':
+          description: 再生成成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InviteCodeResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /families/join:
+    post:
+      tags:
+        - Families
+      summary: 招待コードでファミリーに参加（子供のみ）
+      operationId: joinFamily
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JoinFamilyRequest'
+      responses:
+        '200':
+          description: 参加成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Family'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: 招待コードが無効
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /families/{familyId}/leave:
+    post:
+      tags:
+        - Families
+      summary: ファミリーから脱退
+      operationId: leaveFamily
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+      responses:
+        '204':
+          description: 脱退成功
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ==================== Reward Settings ====================
+  /families/{familyId}/reward-settings:
+    get:
+      tags:
+        - Rewards
+      summary: 報酬設定一覧取得（親のみ）
+      operationId: getRewardSettings
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RewardSetting'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /families/{familyId}/reward-settings/{childId}:
+    get:
+      tags:
+        - Rewards
+      summary: 特定の子供への報酬設定取得
+      operationId: getRewardSettingForChild
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - $ref: '#/components/parameters/ChildId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RewardSetting'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags:
+        - Rewards
+      summary: 報酬設定を更新（親のみ）
+      operationId: updateRewardSetting
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - $ref: '#/components/parameters/ChildId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRewardSettingRequest'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RewardSetting'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ==================== Calls ====================
+  /families/{familyId}/calls:
+    get:
+      tags:
+        - Calls
+      summary: 通話履歴一覧
+      operationId: getCallHistory
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CallListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /families/{familyId}/calls/request:
+    post:
+      tags:
+        - Calls
+      summary: 通話リクエスト送信
+      operationId: sendCallRequest
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CallRequestRequest'
+      responses:
+        '201':
+          description: リクエスト送信成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CallRequest'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /families/{familyId}/calls/requests:
+    get:
+      tags:
+        - Calls
+      summary: 受信した通話リクエスト一覧
+      operationId: getCallRequests
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, accepted, declined, expired]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CallRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /families/{familyId}/calls/requests/{requestId}/accept:
+    post:
+      tags:
+        - Calls
+      summary: 通話リクエストを承諾
+      operationId: acceptCallRequest
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: 承諾成功、通話開始情報を返却
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CallSession'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /families/{familyId}/calls/requests/{requestId}/decline:
+    post:
+      tags:
+        - Calls
+      summary: 通話リクエストを拒否
+      operationId: declineCallRequest
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '204':
+          description: 拒否成功
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /families/{familyId}/calls/{callId}:
+    get:
+      tags:
+        - Calls
+      summary: 通話詳細取得
+      operationId: getCall
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - $ref: '#/components/parameters/CallId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Call'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /families/{familyId}/calls/{callId}/end:
+    post:
+      tags:
+        - Calls
+      summary: 通話終了
+      operationId: endCall
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - $ref: '#/components/parameters/CallId'
+      responses:
+        '200':
+          description: 終了成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CallEndResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ==================== Photos ====================
+  /families/{familyId}/photos:
+    get:
+      tags:
+        - Photos
+      summary: 写真タイムライン取得
+      operationId: getPhotos
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PhotoListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags:
+        - Photos
+      summary: 写真投稿（子供のみ）
+      operationId: uploadPhoto
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UploadPhotoRequest'
+      responses:
+        '201':
+          description: 投稿成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Photo'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /families/{familyId}/photos/{photoId}:
+    get:
+      tags:
+        - Photos
+      summary: 写真詳細取得
+      operationId: getPhoto
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - $ref: '#/components/parameters/PhotoId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PhotoDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - Photos
+      summary: 写真削除（投稿者のみ）
+      operationId: deletePhoto
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - $ref: '#/components/parameters/PhotoId'
+      responses:
+        '204':
+          description: 削除成功
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /families/{familyId}/photos/{photoId}/reactions:
+    get:
+      tags:
+        - Photos
+      summary: リアクション一覧取得
+      operationId: getPhotoReactions
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - $ref: '#/components/parameters/PhotoId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Reaction'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags:
+        - Photos
+      summary: リアクション追加
+      operationId: addReaction
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - $ref: '#/components/parameters/PhotoId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddReactionRequest'
+      responses:
+        '201':
+          description: 追加成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reaction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /families/{familyId}/photos/{photoId}/reactions/{reactionId}:
+    delete:
+      tags:
+        - Photos
+      summary: リアクション削除
+      operationId: removeReaction
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - $ref: '#/components/parameters/PhotoId'
+        - name: reactionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: 削除成功
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ==================== Rewards ====================
+  /families/{familyId}/rewards:
+    get:
+      tags:
+        - Rewards
+      summary: 報酬履歴一覧
+      operationId: getRewards
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, confirmed]
+        - name: month
+          in: query
+          description: "YYYY-MM形式"
+          schema:
+            type: string
+            example: "2025-01"
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RewardListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /families/{familyId}/rewards/{rewardId}/confirm:
+    post:
+      tags:
+        - Rewards
+      summary: 報酬受領確認（子供のみ）
+      operationId: confirmReward
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - name: rewardId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: 確認成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reward'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /families/{familyId}/rewards/summary:
+    get:
+      tags:
+        - Rewards
+      summary: 報酬サマリー取得
+      operationId: getRewardSummary
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - name: month
+          in: query
+          description: "YYYY-MM形式（省略時は当月）"
+          schema:
+            type: string
+            example: "2025-01"
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RewardSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ==================== Rankings ====================
+  /families/{familyId}/rankings:
+    get:
+      tags:
+        - Rankings
+      summary: ランキング取得
+      operationId: getRanking
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - name: month
+          in: query
+          description: "YYYY-MM形式（省略時は当月）"
+          schema:
+            type: string
+            example: "2025-01"
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RankingResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ==================== Titles ====================
+  /titles:
+    get:
+      tags:
+        - Rankings
+      summary: 称号一覧取得
+      operationId: getTitles
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Title'
+
+  # ==================== Notifications ====================
+  /notifications:
+    get:
+      tags:
+        - Notifications
+      summary: 通知一覧取得
+      operationId: getNotifications
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: unreadOnly
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /notifications/{notificationId}/read:
+    post:
+      tags:
+        - Notifications
+      summary: 通知を既読にする
+      operationId: markNotificationAsRead
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: notificationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: 成功
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /notifications/read-all:
+    post:
+      tags:
+        - Notifications
+      summary: すべての通知を既読にする
+      operationId: markAllNotificationsAsRead
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: 成功
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /notifications/settings:
+    get:
+      tags:
+        - Notifications
+      summary: 通知設定取得
+      operationId: getNotificationSettings
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationSettings'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    put:
+      tags:
+        - Notifications
+      summary: 通知設定更新
+      operationId: updateNotificationSettings
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationSettings'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationSettings'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    FamilyId:
+      name: familyId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: ファミリーID
+
+    ChildId:
+      name: childId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: 子供のユーザーID
+
+    CallId:
+      name: callId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: 通話ID
+
+    RequestId:
+      name: requestId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: 通話リクエストID
+
+    PhotoId:
+      name: photoId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: 写真ID
+
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      description: 取得件数
+
+    Cursor:
+      name: cursor
+      in: query
+      schema:
+        type: string
+      description: ページネーションカーソル
+
+  responses:
+    BadRequest:
+      description: リクエストが不正
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Unauthorized:
+      description: 認証が必要
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Forbidden:
+      description: アクセス権限がない
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFound:
+      description: リソースが見つからない
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Conflict:
+      description: リソースが競合
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    TooManyRequests:
+      description: リクエスト制限超過
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    # ==================== Error ====================
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              example: "INVALID_REQUEST"
+            message:
+              type: string
+              example: "リクエストが不正です"
+          required:
+            - code
+            - message
+      required:
+        - error
+
+    # ==================== Auth ====================
+    SendCodeByPhoneRequest:
+      type: object
+      properties:
+        phoneNumber:
+          type: string
+          example: "+819012345678"
+      required:
+        - phoneNumber
+
+    SendCodeByEmailRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          example: "user@example.com"
+      required:
+        - email
+
+    SendCodeResponse:
+      type: object
+      properties:
+        expiresAt:
+          type: string
+          format: date-time
+        retryAfter:
+          type: integer
+          description: 再送信可能になるまでの秒数
+          example: 60
+
+    VerifyCodeRequest:
+      type: object
+      properties:
+        phoneNumber:
+          type: string
+        email:
+          type: string
+          format: email
+        code:
+          type: string
+          minLength: 4
+          maxLength: 6
+          example: "1234"
+      required:
+        - code
+
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+      required:
+        - email
+        - password
+
+    RegisterRequest:
+      type: object
+      properties:
+        phoneNumber:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 50
+        verificationCode:
+          type: string
+      required:
+        - displayName
+        - verificationCode
+
+    RefreshTokenRequest:
+      type: object
+      properties:
+        refreshToken:
+          type: string
+      required:
+        - refreshToken
+
+    AuthResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresIn:
+          type: integer
+          description: アクセストークンの有効期間（秒）
+        user:
+          $ref: '#/components/schemas/User'
+
+    # ==================== User ====================
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        phoneNumber:
+          type: string
+          nullable: true
+        email:
+          type: string
+          format: email
+          nullable: true
+        displayName:
+          type: string
+        avatarUrl:
+          type: string
+          nullable: true
+        role:
+          type: string
+          enum: [parent, child]
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 50
+
+    SetRoleRequest:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [parent, child]
+      required:
+        - role
+
+    AvatarResponse:
+      type: object
+      properties:
+        avatarUrl:
+          type: string
+
+    DeviceTokenRequest:
+      type: object
+      properties:
+        token:
+          type: string
+        platform:
+          type: string
+          enum: [ios, android]
+      required:
+        - token
+        - platform
+
+    # ==================== Family ====================
+    Family:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        iconUrl:
+          type: string
+          nullable: true
+        createdBy:
+          type: string
+          format: uuid
+        memberCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+
+    FamilyDetail:
+      allOf:
+        - $ref: '#/components/schemas/Family'
+        - type: object
+          properties:
+            members:
+              type: array
+              items:
+                $ref: '#/components/schemas/FamilyMember'
+
+    FamilyMember:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        avatarUrl:
+          type: string
+          nullable: true
+        role:
+          type: string
+          enum: [parent, child]
+        title:
+          $ref: '#/components/schemas/Title'
+        monthlyAmount:
+          type: integer
+          description: 今月の貢ぎ額（親）または獲得額（子供）
+        joinedAt:
+          type: string
+          format: date-time
+
+    CreateFamilyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+      required:
+        - name
+
+    UpdateFamilyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+
+    InviteCodeResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "ABC123"
+        url:
+          type: string
+          example: "https://oyakatsu.app/join/ABC123"
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    JoinFamilyRequest:
+      type: object
+      properties:
+        inviteCode:
+          type: string
+      required:
+        - inviteCode
+
+    # ==================== Reward Settings ====================
+    RewardSetting:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        familyId:
+          type: string
+          format: uuid
+        parentId:
+          type: string
+          format: uuid
+        childId:
+          type: string
+          format: uuid
+        childDisplayName:
+          type: string
+        callRewardType:
+          type: string
+          enum: [fixed, per_minute]
+        callRewardAmount:
+          type: integer
+          description: 固定の場合は1回あたり、時間制の場合は1分あたりの金額
+        photoRewardAmount:
+          type: integer
+          description: 写真1枚あたりの金額
+        updatedAt:
+          type: string
+          format: date-time
+
+    UpdateRewardSettingRequest:
+      type: object
+      properties:
+        callRewardType:
+          type: string
+          enum: [fixed, per_minute]
+        callRewardAmount:
+          type: integer
+          minimum: 0
+        photoRewardAmount:
+          type: integer
+          minimum: 0
+
+    # ==================== Call ====================
+    CallRequest:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        familyId:
+          type: string
+          format: uuid
+        callerId:
+          type: string
+          format: uuid
+        callerName:
+          type: string
+        calleeId:
+          type: string
+          format: uuid
+        calleeName:
+          type: string
+        callType:
+          type: string
+          enum: [video, audio]
+        estimatedReward:
+          type: integer
+          description: 予想報酬額
+        status:
+          type: string
+          enum: [pending, accepted, declined, expired]
+        expiresAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    CallRequestRequest:
+      type: object
+      properties:
+        calleeId:
+          type: string
+          format: uuid
+        callType:
+          type: string
+          enum: [video, audio]
+      required:
+        - calleeId
+        - callType
+
+    CallSession:
+      type: object
+      properties:
+        callId:
+          type: string
+          format: uuid
+        roomId:
+          type: string
+          description: WebRTCルームID
+        token:
+          type: string
+          description: WebRTC接続用トークン
+        iceServers:
+          type: array
+          items:
+            type: object
+            properties:
+              urls:
+                type: array
+                items:
+                  type: string
+              username:
+                type: string
+              credential:
+                type: string
+
+    Call:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        familyId:
+          type: string
+          format: uuid
+        callerId:
+          type: string
+          format: uuid
+        callerName:
+          type: string
+        calleeId:
+          type: string
+          format: uuid
+        calleeName:
+          type: string
+        callType:
+          type: string
+          enum: [video, audio]
+        durationSeconds:
+          type: integer
+        rewardAmount:
+          type: integer
+        status:
+          type: string
+          enum: [ongoing, completed, missed]
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    CallEndResponse:
+      type: object
+      properties:
+        call:
+          $ref: '#/components/schemas/Call'
+        reward:
+          $ref: '#/components/schemas/Reward'
+
+    CallListResponse:
+      type: object
+      properties:
+        calls:
+          type: array
+          items:
+            $ref: '#/components/schemas/Call'
+        nextCursor:
+          type: string
+          nullable: true
+        hasMore:
+          type: boolean
+
+    # ==================== Photo ====================
+    Photo:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        familyId:
+          type: string
+          format: uuid
+        uploaderId:
+          type: string
+          format: uuid
+        uploaderName:
+          type: string
+        uploaderAvatarUrl:
+          type: string
+          nullable: true
+        imageUrl:
+          type: string
+        thumbnailUrl:
+          type: string
+        caption:
+          type: string
+          nullable: true
+        visibility:
+          type: string
+          enum: [all, specific]
+        reactionCounts:
+          type: object
+          additionalProperties:
+            type: integer
+          example:
+            heart: 3
+            smile: 1
+            clap: 2
+        rewardAmount:
+          type: integer
+        uploadedAt:
+          type: string
+          format: date-time
+
+    PhotoDetail:
+      allOf:
+        - $ref: '#/components/schemas/Photo'
+        - type: object
+          properties:
+            reactions:
+              type: array
+              items:
+                $ref: '#/components/schemas/Reaction'
+            recipients:
+              type: array
+              items:
+                $ref: '#/components/schemas/PhotoRecipient'
+
+    PhotoRecipient:
+      type: object
+      properties:
+        userId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+
+    UploadPhotoRequest:
+      type: object
+      properties:
+        image:
+          type: string
+          format: binary
+        caption:
+          type: string
+          maxLength: 500
+        visibility:
+          type: string
+          enum: [all, specific]
+          default: all
+        recipientIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: visibility=specificの場合に必須
+      required:
+        - image
+
+    PhotoListResponse:
+      type: object
+      properties:
+        photos:
+          type: array
+          items:
+            $ref: '#/components/schemas/Photo'
+        nextCursor:
+          type: string
+          nullable: true
+        hasMore:
+          type: boolean
+
+    # ==================== Reaction ====================
+    Reaction:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        photoId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        userName:
+          type: string
+        type:
+          type: string
+          enum: [heart, smile, clap, cry]
+        createdAt:
+          type: string
+          format: date-time
+
+    AddReactionRequest:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [heart, smile, clap, cry]
+      required:
+        - type
+
+    # ==================== Reward ====================
+    Reward:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        familyId:
+          type: string
+          format: uuid
+        parentId:
+          type: string
+          format: uuid
+        parentName:
+          type: string
+        childId:
+          type: string
+          format: uuid
+        childName:
+          type: string
+        sourceType:
+          type: string
+          enum: [call, photo]
+        sourceId:
+          type: string
+          format: uuid
+        amount:
+          type: integer
+        status:
+          type: string
+          enum: [pending, confirmed]
+        confirmedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    RewardListResponse:
+      type: object
+      properties:
+        rewards:
+          type: array
+          items:
+            $ref: '#/components/schemas/Reward'
+        nextCursor:
+          type: string
+          nullable: true
+        hasMore:
+          type: boolean
+
+    RewardSummary:
+      type: object
+      properties:
+        month:
+          type: string
+          example: "2025-01"
+        totalAmount:
+          type: integer
+          description: 親は貢ぎ額、子供は獲得額
+        pendingAmount:
+          type: integer
+          description: 未確認の報酬額
+        confirmedAmount:
+          type: integer
+          description: 確認済みの報酬額
+        callCount:
+          type: integer
+        photoCount:
+          type: integer
+        title:
+          $ref: '#/components/schemas/Title'
+        rank:
+          type: integer
+          nullable: true
+          description: ファミリー内順位（親のみ）
+
+    # ==================== Ranking ====================
+    RankingResponse:
+      type: object
+      properties:
+        month:
+          type: string
+          example: "2025-01"
+        familyId:
+          type: string
+          format: uuid
+        familyName:
+          type: string
+        rankings:
+          type: array
+          items:
+            $ref: '#/components/schemas/RankingEntry'
+
+    RankingEntry:
+      type: object
+      properties:
+        rank:
+          type: integer
+        userId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        avatarUrl:
+          type: string
+          nullable: true
+        amount:
+          type: integer
+        title:
+          $ref: '#/components/schemas/Title'
+
+    # ==================== Title ====================
+    Title:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          example: "神推し"
+        minAmount:
+          type: integer
+        maxAmount:
+          type: integer
+          nullable: true
+        icon:
+          type: string
+          example: "🎖️"
+
+    # ==================== Notification ====================
+    Notification:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [call_request, photo_posted, reward_received, title_changed, ranking_changed]
+        title:
+          type: string
+        body:
+          type: string
+        data:
+          type: object
+          additionalProperties: true
+        isRead:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    NotificationListResponse:
+      type: object
+      properties:
+        notifications:
+          type: array
+          items:
+            $ref: '#/components/schemas/Notification'
+        nextCursor:
+          type: string
+          nullable: true
+        hasMore:
+          type: boolean
+        unreadCount:
+          type: integer
+
+    NotificationSettings:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          description: プッシュ通知の有効/無効
