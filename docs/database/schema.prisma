@@ -1,0 +1,470 @@
+// オヤカツ データベーススキーマ
+// Prisma Schema for PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== ユーザー関連 ====================
+
+/// ユーザー
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  phoneNumber  String?   @unique @map("phone_number")
+  email        String?   @unique
+  passwordHash String?   @map("password_hash")
+  displayName  String    @map("display_name") @db.VarChar(50)
+  avatarUrl    String?   @map("avatar_url")
+  role         UserRole?
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  familyMemberships FamilyMember[]
+  createdFamilies   Family[]           @relation("FamilyCreator")
+  rewardSettings    RewardSetting[]    @relation("RewardSettingParent")
+  childSettings     RewardSetting[]    @relation("RewardSettingChild")
+  callerCalls       Call[]             @relation("CallCaller")
+  calleeCalls       Call[]             @relation("CallCallee")
+  callerRequests    CallRequest[]      @relation("CallRequestCaller")
+  calleeRequests    CallRequest[]      @relation("CallRequestCallee")
+  photos            Photo[]
+  reactions         Reaction[]
+  parentRewards     Reward[]           @relation("RewardParent")
+  childRewards      Reward[]           @relation("RewardChild")
+  rankings          Ranking[]
+  notifications     Notification[]
+  deviceTokens      DeviceToken[]
+  refreshTokens     RefreshToken[]
+  verificationCodes VerificationCode[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  parent
+  child
+
+  @@map("user_role")
+}
+
+/// デバイストークン（プッシュ通知用）
+model DeviceToken {
+  id        String         @id @default(uuid()) @db.Uuid
+  userId    String         @map("user_id") @db.Uuid
+  token     String
+  platform  DevicePlatform
+  createdAt DateTime       @default(now()) @map("created_at")
+  updatedAt DateTime       @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, token])
+  @@map("device_tokens")
+}
+
+enum DevicePlatform {
+  ios
+  android
+
+  @@map("device_platform")
+}
+
+/// リフレッシュトークン
+model RefreshToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+/// 認証コード（SMS/Email認証用）
+model VerificationCode {
+  id        String               @id @default(uuid()) @db.Uuid
+  userId    String?              @map("user_id") @db.Uuid
+  target    String // 電話番号 or メールアドレス
+  code      String               @db.VarChar(6)
+  type      VerificationCodeType
+  expiresAt DateTime             @map("expires_at")
+  usedAt    DateTime?            @map("used_at")
+  createdAt DateTime             @default(now()) @map("created_at")
+
+  // Relations
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([target, code])
+  @@map("verification_codes")
+}
+
+enum VerificationCodeType {
+  phone
+  email
+
+  @@map("verification_code_type")
+}
+
+// ==================== ファミリー関連 ====================
+
+/// ファミリー
+model Family {
+  id         String   @id @default(uuid()) @db.Uuid
+  name       String   @db.VarChar(50)
+  iconUrl    String?  @map("icon_url")
+  inviteCode String   @unique @map("invite_code") @db.VarChar(10)
+  createdBy  String   @map("created_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  creator        User            @relation("FamilyCreator", fields: [createdBy], references: [id])
+  members        FamilyMember[]
+  rewardSettings RewardSetting[]
+  calls          Call[]
+  callRequests   CallRequest[]
+  photos         Photo[]
+  rewards        Reward[]
+  rankings       Ranking[]
+
+  @@map("families")
+}
+
+/// ファミリーメンバー
+model FamilyMember {
+  id       String             @id @default(uuid()) @db.Uuid
+  familyId String             @map("family_id") @db.Uuid
+  userId   String             @map("user_id") @db.Uuid
+  role     UserRole
+  status   FamilyMemberStatus @default(active)
+  joinedAt DateTime           @default(now()) @map("joined_at")
+  leftAt   DateTime?          @map("left_at")
+
+  // Relations
+  family Family @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([familyId, userId])
+  @@index([userId])
+  @@map("family_members")
+}
+
+enum FamilyMemberStatus {
+  active
+  left
+
+  @@map("family_member_status")
+}
+
+// ==================== 報酬設定 ====================
+
+/// 報酬設定（親→子供ごとの設定）
+model RewardSetting {
+  id                String         @id @default(uuid()) @db.Uuid
+  familyId          String         @map("family_id") @db.Uuid
+  parentId          String         @map("parent_id") @db.Uuid
+  childId           String         @map("child_id") @db.Uuid
+  callRewardType    CallRewardType @default(fixed) @map("call_reward_type")
+  callRewardAmount  Int            @default(0) @map("call_reward_amount") // 円
+  photoRewardAmount Int            @default(0) @map("photo_reward_amount") // 円
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  // Relations
+  family Family @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  parent User   @relation("RewardSettingParent", fields: [parentId], references: [id], onDelete: Cascade)
+  child  User   @relation("RewardSettingChild", fields: [childId], references: [id], onDelete: Cascade)
+
+  @@unique([familyId, parentId, childId])
+  @@map("reward_settings")
+}
+
+enum CallRewardType {
+  fixed      // 1回あたり固定
+  per_minute // 1分あたり
+
+  @@map("call_reward_type")
+}
+
+// ==================== 通話関連 ====================
+
+/// 通話リクエスト
+model CallRequest {
+  id        String            @id @default(uuid()) @db.Uuid
+  familyId  String            @map("family_id") @db.Uuid
+  callerId  String            @map("caller_id") @db.Uuid
+  calleeId  String            @map("callee_id") @db.Uuid
+  callType  CallType          @map("call_type")
+  status    CallRequestStatus @default(pending)
+  expiresAt DateTime          @map("expires_at")
+  createdAt DateTime          @default(now()) @map("created_at")
+  updatedAt DateTime          @updatedAt @map("updated_at")
+
+  // Relations
+  family Family @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  caller User   @relation("CallRequestCaller", fields: [callerId], references: [id], onDelete: Cascade)
+  callee User   @relation("CallRequestCallee", fields: [calleeId], references: [id], onDelete: Cascade)
+  call   Call?
+
+  @@index([calleeId, status])
+  @@index([expiresAt])
+  @@map("call_requests")
+}
+
+enum CallRequestStatus {
+  pending
+  accepted
+  declined
+  expired
+
+  @@map("call_request_status")
+}
+
+/// 通話
+model Call {
+  id              String     @id @default(uuid()) @db.Uuid
+  familyId        String     @map("family_id") @db.Uuid
+  callRequestId   String?    @unique @map("call_request_id") @db.Uuid
+  callerId        String     @map("caller_id") @db.Uuid
+  calleeId        String     @map("callee_id") @db.Uuid
+  callType        CallType   @map("call_type")
+  roomId          String?    @map("room_id") // WebRTCルームID
+  status          CallStatus @default(ongoing)
+  durationSeconds Int?       @map("duration_seconds")
+  startedAt       DateTime   @default(now()) @map("started_at")
+  endedAt         DateTime?  @map("ended_at")
+
+  // Relations
+  family      Family       @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  callRequest CallRequest? @relation(fields: [callRequestId], references: [id], onDelete: SetNull)
+  caller      User         @relation("CallCaller", fields: [callerId], references: [id], onDelete: Cascade)
+  callee      User         @relation("CallCallee", fields: [calleeId], references: [id], onDelete: Cascade)
+  rewards     Reward[]
+
+  @@index([familyId, startedAt])
+  @@map("calls")
+}
+
+enum CallType {
+  video
+  audio
+
+  @@map("call_type")
+}
+
+enum CallStatus {
+  ongoing
+  completed
+  missed
+
+  @@map("call_status")
+}
+
+// ==================== 写真関連 ====================
+
+/// 写真
+model Photo {
+  id           String           @id @default(uuid()) @db.Uuid
+  familyId     String           @map("family_id") @db.Uuid
+  uploaderId   String           @map("uploader_id") @db.Uuid
+  imageUrl     String           @map("image_url")
+  thumbnailUrl String?          @map("thumbnail_url")
+  caption      String?          @db.VarChar(500)
+  visibility   PhotoVisibility  @default(all)
+  uploadedAt   DateTime         @default(now()) @map("uploaded_at")
+  expiresAt    DateTime         @map("expires_at") // 1年後
+
+  // Relations
+  family     Family           @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  uploader   User             @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  recipients PhotoRecipient[]
+  reactions  Reaction[]
+  rewards    Reward[]
+
+  @@index([familyId, uploadedAt])
+  @@index([expiresAt])
+  @@map("photos")
+}
+
+enum PhotoVisibility {
+  all      // 全員に公開
+  specific // 特定メンバーのみ
+
+  @@map("photo_visibility")
+}
+
+/// 写真の送信先（visibility=specificの場合）
+model PhotoRecipient {
+  id        String   @id @default(uuid()) @db.Uuid
+  photoId   String   @map("photo_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  photo Photo @relation(fields: [photoId], references: [id], onDelete: Cascade)
+
+  @@unique([photoId, userId])
+  @@map("photo_recipients")
+}
+
+/// リアクション
+model Reaction {
+  id        String       @id @default(uuid()) @db.Uuid
+  photoId   String       @map("photo_id") @db.Uuid
+  userId    String       @map("user_id") @db.Uuid
+  type      ReactionType
+  createdAt DateTime     @default(now()) @map("created_at")
+
+  // Relations
+  photo Photo @relation(fields: [photoId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([photoId, userId, type])
+  @@index([photoId])
+  @@map("reactions")
+}
+
+enum ReactionType {
+  heart
+  smile
+  clap
+  cry
+
+  @@map("reaction_type")
+}
+
+// ==================== 報酬関連 ====================
+
+/// 報酬
+model Reward {
+  id          String       @id @default(uuid()) @db.Uuid
+  familyId    String       @map("family_id") @db.Uuid
+  parentId    String       @map("parent_id") @db.Uuid
+  childId     String       @map("child_id") @db.Uuid
+  sourceType  RewardSource @map("source_type")
+  callId      String?      @map("call_id") @db.Uuid
+  photoId     String?      @map("photo_id") @db.Uuid
+  amount      Int // 円
+  status      RewardStatus @default(pending)
+  confirmedAt DateTime?    @map("confirmed_at")
+  createdAt   DateTime     @default(now()) @map("created_at")
+
+  // Relations
+  family Family @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  parent User   @relation("RewardParent", fields: [parentId], references: [id], onDelete: Cascade)
+  child  User   @relation("RewardChild", fields: [childId], references: [id], onDelete: Cascade)
+  call   Call?  @relation(fields: [callId], references: [id], onDelete: SetNull)
+  photo  Photo? @relation(fields: [photoId], references: [id], onDelete: SetNull)
+
+  @@index([familyId, createdAt])
+  @@index([childId, status])
+  @@index([parentId, createdAt])
+  @@map("rewards")
+}
+
+enum RewardSource {
+  call
+  photo
+
+  @@map("reward_source")
+}
+
+enum RewardStatus {
+  pending   // 未受領
+  confirmed // 受領確認済み
+
+  @@map("reward_status")
+}
+
+// ==================== ランキング・称号 ====================
+
+/// 称号マスター
+model Title {
+  id        String   @id
+  name      String   @db.VarChar(20)
+  icon      String   @db.VarChar(10)
+  minAmount Int      @map("min_amount")
+  maxAmount Int?     @map("max_amount")
+  sortOrder Int      @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  rankings Ranking[]
+
+  @@map("titles")
+}
+
+/// 月間ランキング
+model Ranking {
+  id          String   @id @default(uuid()) @db.Uuid
+  familyId    String   @map("family_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  month       String   @db.VarChar(7) // YYYY-MM
+  totalAmount Int      @map("total_amount")
+  rank        Int
+  titleId     String   @map("title_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  family Family @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title  Title  @relation(fields: [titleId], references: [id])
+
+  @@unique([familyId, userId, month])
+  @@index([familyId, month, rank])
+  @@map("rankings")
+}
+
+// ==================== 通知 ====================
+
+/// 通知
+model Notification {
+  id        String           @id @default(uuid()) @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  type      NotificationType
+  title     String           @db.VarChar(100)
+  body      String           @db.VarChar(500)
+  data      Json? // 追加データ
+  isRead    Boolean          @default(false) @map("is_read")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  call_request
+  photo_posted
+  reward_received
+  title_changed
+  ranking_changed
+
+  @@map("notification_type")
+}
+
+/// 通知設定
+model NotificationSetting {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @unique @map("user_id") @db.Uuid
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("notification_settings")
+}
